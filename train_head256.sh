@@ -7,8 +7,7 @@
 #   --workdir=workdir/AAPM256
 
 python main.py \
-  --config=configs/ve/exp_AAPM_256_ncsnpp_continuous.py \
-  --eval_folder=eval/exp_AAPM256 \
+  --config=configs/ve/cone_head_256_ncsnpp_continuous.py \
+  --eval_folder=eval/exp_head256 \
   --mode='train' \
-  --workdir=workdir/exp_AAPM256-1
-  # --workdir=workdir/exp_AAPM256
+  --workdir=workdir/exp_head256

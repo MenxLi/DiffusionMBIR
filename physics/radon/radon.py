@@ -119,7 +119,8 @@ class IRadon(nn.Module):
         if not circle:
             in_size = int((SQRT2 * in_size).ceil())
         unitrange = torch.linspace(-1, 1, in_size, dtype=self.dtype)
-        return torch.meshgrid(unitrange, unitrange)
+        # return torch.meshgrid(unitrange, unitrange)
+        return torch.meshgrid(unitrange, unitrange, indexing='ij')
 
     def _XYtoT(self, theta):
         T = self.xgrid * (deg2rad(theta)).cos() - self.ygrid * (deg2rad(theta)).sin()
@@ -138,12 +139,4 @@ class IRadon(nn.Module):
 
 
 if __name__ == '__main__':
-    img_width = 2
-    num_proj = 180
-    device = 'cuda:0'
-    radon = Radon(in_size=img_width, theta=torch.arange(num_proj), circle=False).to(device)
-    iradon = IRadon(in_size=img_width, theta=torch.arange(num_proj), circle=False).to(device)
-
-    img = torch.randn([1, 1, 2, 2]).to(device)
-    sinogram = radon(img)
-    b_img = iradon(sinogram)
+    ...

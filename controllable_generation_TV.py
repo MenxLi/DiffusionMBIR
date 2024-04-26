@@ -95,9 +95,14 @@ def _DyT(x):  # Batch direction
     return y
 
 
+## type hint
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from physics.ct import CT_abstract
+
 def get_pc_radon_ADMM_TV(sde, predictor, corrector, inverse_scaler, snr,
                          n_steps=1, probability_flow=False, continuous=False,
-                         denoise=True, eps=1e-5, radon=None, save_progress=False, save_root=None,
+                         denoise=True, eps=1e-5, radon: CT_abstract=None, save_progress=False, save_root=None,
                          final_consistency=False, img_cache=None, img_shape=None, lamb_1=5, rho=10):
     """ Sparse application of measurement consistency """
     # Define predictor & corrector
@@ -225,7 +230,7 @@ def get_pc_radon_ADMM_TV(sde, predictor, corrector, inverse_scaler, snr,
 
 def get_pc_radon_ADMM_TV_vol(sde, predictor, corrector, inverse_scaler, snr,
                              n_steps=1, probability_flow=False, continuous=False,
-                             denoise=True, eps=1e-5, radon=None, save_progress=False, save_root=None,
+                             denoise=True, eps=1e-5, radon: CT_abstract=None, save_progress=False, save_root=None,
                              final_consistency=False, img_shape=None, lamb_1=5, rho=10):
     """ Sparse application of measurement consistency """
     # Define predictor & corrector
@@ -304,6 +309,7 @@ def get_pc_radon_ADMM_TV_vol(sde, predictor, corrector, inverse_scaler, snr,
 
     def get_ADMM_TV_fn():
         def ADMM_TV_fn(x, measurement=None):
+            # print(x.shape)
             with torch.no_grad():
                 ATy = _AT(measurement)
                 x, x_mean = CS_routine(x, ATy, niter=1)
@@ -321,6 +327,7 @@ def get_pc_radon_ADMM_TV_vol(sde, predictor, corrector, inverse_scaler, snr,
             ones = torch.ones_like(x).to(data.device)
             norm_const = _AT(_A(ones))
             timesteps = torch.linspace(sde.T, eps, sde.N)
+
             for i in tqdm(range(sde.N)):
                 t = timesteps[i]
                 # 1. batchify into sizes that fit into the GPU
@@ -339,7 +346,10 @@ def get_pc_radon_ADMM_TV_vol(sde, predictor, corrector, inverse_scaler, snr,
                 if save_progress:
                     if (i % 50) == 0:
                         print(f'iter: {i}/{sde.N}')
-                        plt.imsave(save_root / 'recon' / 'progress' / f'progress{i}.png', clear(x_mean[0:1]), cmap='gray')
+                        # save an image at the middle of the volume, as cone beam will have bad recon at the edges
+                        __idx = x_mean.shape[0] // 2
+                        plt.imsave(save_root / 'recon' / 'progress' / f'progress{i}.png', clear(x_mean[__idx]), cmap='gray')
+                    
             # Final step which coerces the data fidelity error term to be zero,
             # and thereby satisfying Ax = y
             if final_consistency:

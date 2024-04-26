@@ -18,7 +18,9 @@ def clear_color(x):
   return np.transpose(x, (1, 2, 0))
 
 def clear(x, normalize=True):
-  x = x.detach().cpu().squeeze().numpy()
+  # It is important to clone the tensor for CBCT, 
+  # otherwise the original tensor will be modified with per-slice normalization
+  x = x.clone().detach().cpu().squeeze().numpy()
   if normalize:
     x = normalize_np(x)
   return x
@@ -27,13 +29,16 @@ def clear(x, normalize=True):
 def restore_checkpoint(ckpt_dir, state, device, skip_sigma=False, skip_optimizer=False):
   ckpt_dir = Path(ckpt_dir)
   # import ipdb; ipdb.set_trace()
-  # ckpt = ckpt_dir / "checkpoint.pth"
-  if not ckpt_dir.exists():
+  if os.path.isdir(ckpt_dir):
+    ckpt = ckpt_dir / "checkpoint.pth"
+  else:
+    ckpt = ckpt_dir
+  if not ckpt.exists():
     logging.warning(f"No checkpoint found at {ckpt_dir}. "
                   f"Returned the same state as input")
     return state
   else:
-    loaded_state = torch.load(ckpt_dir, map_location=device)
+    loaded_state = torch.load(ckpt, map_location=device)
     if not skip_optimizer:
       state['optimizer'].load_state_dict(loaded_state['optimizer'])
     loaded_model_state = loaded_state['model']
@@ -98,7 +103,7 @@ def normalize(img):
 def normalize_np(img):
   """ Normalize img in arbitrary range to [0, 1] """
   img -= np.min(img)
-  img /= np.max(img)
+  img /= (np.max(img) + 1e-10)
   return img
 
 

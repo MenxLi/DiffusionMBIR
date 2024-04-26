@@ -237,6 +237,23 @@ class AAPM(Dataset):
     data = np.expand_dims(data, axis=0)
     return data
 
+class AAPM_cbctrec(Dataset):
+  def __init__(self, root, sort):
+    self.root = root
+    self.data_list = list(root.glob('*.npy'))
+    self.sort = sort
+    if sort:
+      self.data_list = sorted(self.data_list)
+
+  def __len__(self):
+    return len(self.data_list)
+
+  def __getitem__(self, idx):
+    fname = self.data_list[idx]
+    data = np.load(fname)
+    data = np.expand_dims(data, axis=0)
+    return data
+
 
 class Object5(Dataset):
   def __init__(self, root, slice, fast=False):
@@ -336,6 +353,9 @@ def create_dataloader(configs, evaluation=False, sort=True):
   elif configs.data.dataset == 'AAPM':
     train_dataset = AAPM(Path(configs.data.root) / f'train', sort=False)
     val_dataset = AAPM(Path(configs.data.root) / f'test', sort=True)
+  elif configs.data.dataset == 'AAPM-cbctrec' or configs.data.dataset == 'head-cbctrec':
+    train_dataset = AAPM_cbctrec(Path(configs.data.root) / f'train', sort=False)
+    val_dataset = AAPM_cbctrec(Path(configs.data.root) / f'test', sort=True)
   elif configs.data.is_multi:
     train_dataset = fastmri_knee(Path(configs.data.root) / f'knee_multicoil_{configs.data.image_size}_train')
     val_dataset = fastmri_knee_infer(Path(configs.data.root) / f'knee_{configs.data.image_size}_val', sort=sort)

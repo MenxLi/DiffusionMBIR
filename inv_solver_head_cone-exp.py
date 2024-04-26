@@ -1,42 +1,62 @@
+"""
+The final script used for the experiment
+"""
 import torch
-from torch._C import device
 from losses import get_optimizer
 from models.ema import ExponentialMovingAverage
 
 import numpy as np
 import controllable_generation_TV
 
-from utils import restore_checkpoint, clear, batchfy, patient_wise_min_max, img_wise_min_max
+from utils import restore_checkpoint, clear
 from pathlib import Path
 from models import utils as mutils
-from models import ncsnpp
+from models import ncsnpp   # this one is needed
 from sde_lib import VESDE
 from sampling import (ReverseDiffusionPredictor,
                       LangevinCorrector)
 import datasets
 import time
 # for radon
-from physics.ct import CT
+from physics.ct import CBCT
 import matplotlib.pyplot as plt
 import os
 from tqdm import tqdm
 
+import argparse
+
+vol_fnames = [
+    "99cab51a7f78ec04ef5b0431f07a6737",
+    "P0047120",
+    "P0118783",
+    "P0194247_",
+    "P0275935",
+    "P0280336",
+    "P0389692",
+    "P0405910",
+    "P0407419",
+    "P0424477"
+]
+
+parser = argparse.ArgumentParser(description='Inverse Solver for CBCT')
+parser.add_argument('--vol-idx', type=int, default=0, help='Volume index')
+parser.add_argument('--num-view', type=int, default=15, help='Number of views')
+args = parser.parse_args()
+
 ###############################################
 # Configurations
 ###############################################
-problem = 'sparseview_CT_ADMM_TV_total'
-config_name = 'AAPM_256_ncsnpp_continuous'
+problem = 'cone_sparseview_CBCT_head_TV_total-exp'
+config_name = 'cone_head_256_ncsnpp_continuous'
 sde = 'VESDE'
 num_scales = 2000
-ckpt_num = 185
+ckpt_num = 40
 N = num_scales
-
-vol_name = 'L067'
-root = Path(f'./data/CT/ind/256_sorted/{vol_name}')
-# root = Path(f'./data/CT/ood/256_sorted/slice')
+vol_name = vol_fnames[args.vol_idx]
+root = Path(f'./data/CBCT_head/{vol_name}')
 
 # Parameters for the inverse problem
-Nview = 8
+Nview = args.num_view
 det_spacing = 1.0
 size = 256
 det_count = int((size * (2 * torch.ones(1)).sqrt()).ceil())
@@ -78,13 +98,16 @@ state = restore_checkpoint(ckpt_filename, state, config.device, skip_sigma=True,
 ema.copy_to(score_model.parameters())
 
 # Specify save directory for saving generated samples
-save_root = Path(f'./results/{config_name}/{problem}/m{Nview}/rho{rho}/lambda{lamb}')
+# save_root = Path(f'./results/{config_name}/{problem}/m{Nview}/rho{rho}/lambda{lamb}')
+save_root = Path(f'./results/{config_name}/{problem}/{vol_name}/m{Nview}/')
 save_root.mkdir(parents=True, exist_ok=True)
 
 irl_types = ['input', 'recon', 'label', 'BP', 'sinogram']
 for t in irl_types:
     if t == 'recon':
         save_root_f = save_root / t / 'progress'
+        save_root_f.mkdir(exist_ok=True, parents=True)
+        save_root_f = save_root / t / 'slices'
         save_root_f.mkdir(exist_ok=True, parents=True)
     else:
         save_root_f = save_root / t
@@ -93,7 +116,7 @@ for t in irl_types:
 # read all data
 fname_list = os.listdir(root)
 fname_list = sorted(fname_list, key=lambda x: float(x.split(".")[0]))
-print(fname_list)
+# print(fname_list)
 all_img = []
 
 print("Loading all data")
@@ -104,12 +127,24 @@ for fname in tqdm(fname_list):
     img = img.view(1, 1, h, w)
     all_img.append(img)
     plt.imsave(os.path.join(save_root, 'label', f'{just_name}.png'), clear(img), cmap='gray')
+
+# print("!! Using trimed datset, for testing only !!")
+# all_img = torch.cat(all_img, dim=0)[:100]
+# print(f"Data loaded shape : {all_img.shape}")
+
 all_img = torch.cat(all_img, dim=0)
-print(f"Data loaded shape : {all_img.shape}")
 
 # full
 angles = np.linspace(0, np.pi, 180, endpoint=False)
-radon = CT(img_width=h, radon_view=Nview, circle=False, device=config.device)
+# radon = CT(img_width=h, radon_view=Nview, circle=False, device=config.device)
+radon = CBCT(geo = dict(
+        camera_distance=1000,
+        im_shape_HW=(512, 512),
+        pixel_size=0.012,
+        volume_shape=(all_img.shape[0], all_img.shape[-2], all_img.shape[-1]),
+        voxel_size=1,
+        focal_len=20,
+    ), radon_view=Nview, device=config.device)
 
 predicted_sinogram = []
 label_sinogram = []
@@ -131,7 +166,6 @@ pc_radon = controllable_generation_TV.get_pc_radon_ADMM_TV_vol(sde,
                                                                img_shape=img.shape,
                                                                lamb_1=lamb,
                                                                rho=rho)
-
 print("image shape", img.shape)
 # Sparse by masking
 sinogram = radon.A(img)
@@ -145,8 +179,6 @@ bp = radon.AT(sinogram)
 print("Saving images for BP, label, and sinogram")
 for i in range(len(bp)):
     plt.imsave(save_root / 'BP' / f'{i}.png', clear(bp[i]), cmap='gray')
-for i in range(len(img)):
-    plt.imsave(save_root / 'label' / f'{i}.png', clear(img[i]), cmap='gray')
 for i in range(len(sinogram.squeeze().permute(2,0,1))):
     plt.imsave(save_root / 'sinogram' / f'{i}.png', clear(sinogram.squeeze().permute(2,0,1)[i]), cmap='gray')
 
@@ -156,11 +188,15 @@ img_cahce = x[-1].unsqueeze(0)
 
 count = 0
 for i, recon_img in enumerate(x):
-    # plt.imsave(save_root / 'BP' / f'{count}.png', clear(bp[i]), cmap='gray')
-    # plt.imsave(save_root / 'label' / f'{count}.png', clear(img[i]), cmap='gray')
-    plt.imsave(save_root / 'recon' / f'{count}.png', clear(recon_img), cmap='gray')
+    plt.imsave(save_root / 'BP' / f'{count}.png', clear(bp[i]), cmap='gray')
+    plt.imsave(save_root / 'label' / f'{count}.png', clear(img[i]), cmap='gray')
+    plt.imsave(save_root / 'recon' / 'slices' / f'{count}.png', clear(recon_img), cmap='gray')
 
     count += 1
+
+# save reconstructed image as npy
+np.save(str(save_root / 'recon' / 'all.npy'), x.detach().squeeze().cpu().numpy())
+print("Reconstructed image saved, size: ", x.shape)
 
 # Recon and Save Sinogram
 label_sinogram.append(radon.A_all(img))
